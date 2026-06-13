@@ -584,7 +584,7 @@ async function addLinks(){
       }
     }
   };
-  await Promise.all([wk(),wk(),wk(),wk(),wk(),wk()]);
+  await Promise.all([wk(),wk(),wk()]);
 
   pw.classList.remove('show');
   document.getElementById('resolve-btn').disabled=false;
@@ -593,22 +593,44 @@ async function addLinks(){
 }
 
 async function resolveOne(url,idx){
-  try{
-    const res=await fetch(WORKER+'/api?url='+encodeURIComponent(url));
-    const d=await res.json();
-    if(d.status==='success'&&d.files&&d.files.length){
-      const f=d.files[0];
-      const proxy=f.proxy_url||null;
-      const s=proxy||f.direct_link||f.download_link;
-      playlist[idx]={...playlist[idx],name:f.file_name||shortUrl(url),size:f.size_bytes?fmtSize(f.size_bytes):null,sizeBytes:f.size_bytes||0,thumb:f.thumbnail||null,status:s?'ready':'error',streamUrl:s||null,proxyUrl:proxy,dlUrl:f.download_link||f.direct_link||null};
-      // collect for links panel
-      if(s){
+  const MAX_TRIES=4;
+  const DELAYS=[0,1500,3500,7000]; // ms before each attempt (0 = immediate first try)
+  for(let attempt=0;attempt<MAX_TRIES;attempt++){
+    if(DELAYS[attempt])await new Promise(r=>setTimeout(r,DELAYS[attempt]));
+    try{
+      const res=await fetch(WORKER+'/api?url='+encodeURIComponent(url));
+      if(!res.ok){
+        // HTTP error (5xx, 429 rate limit etc) — retry
+        if(attempt<MAX_TRIES-1){ playlist[idx].errMsg='Retrying... ('+res.status+')'; continue; }
+        playlist[idx].status='error'; playlist[idx].errMsg='Server error '+res.status; return;
+      }
+      const d=await res.json();
+      if(d.status==='success'&&d.files&&d.files.length){
+        const f=d.files[0];
+        const proxy=f.proxy_url||null;
+        const s=proxy||f.direct_link||f.download_link;
+        if(!s){
+          // Got a response but no usable URL — retry, server may still be processing
+          if(attempt<MAX_TRIES-1){ playlist[idx].errMsg='No URL yet, retrying...'; continue; }
+          playlist[idx].status='error'; playlist[idx].errMsg='No stream URL in response'; return;
+        }
+        playlist[idx]={...playlist[idx],name:f.file_name||shortUrl(url),size:f.size_bytes?fmtSize(f.size_bytes):null,sizeBytes:f.size_bytes||0,thumb:f.thumbnail||null,status:'ready',streamUrl:s,proxyUrl:proxy,dlUrl:f.download_link||f.direct_link||null};
         const ei=allFetchedLinks.findIndex(l=>l.url===url);
         const entry={url,name:f.file_name||shortUrl(url),streamUrl:s,proxyUrl:proxy,dlUrl:f.download_link||f.direct_link||null};
         if(ei>=0)allFetchedLinks[ei]=entry; else allFetchedLinks.push(entry);
+        return; // success — done
+      } else {
+        // API returned failure status — may be transient, retry
+        const msg=d.message||'API error';
+        if(attempt<MAX_TRIES-1){ playlist[idx].errMsg='Retrying... ('+msg+')'; continue; }
+        playlist[idx].status='error'; playlist[idx].errMsg=msg; return;
       }
-    } else { playlist[idx].status='error'; playlist[idx].errMsg=d.message||'Failed'; }
-  } catch { playlist[idx].status='error'; playlist[idx].errMsg='Network error'; }
+    } catch(e){
+      // Network error — retry
+      if(attempt<MAX_TRIES-1){ playlist[idx].errMsg='Retrying... (network)'; continue; }
+      playlist[idx].status='error'; playlist[idx].errMsg='Network error after retries'; return;
+    }
+  }
 }
 
 /* ─── LINKS PANEL ─── */
