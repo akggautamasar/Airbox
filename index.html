@@ -224,6 +224,27 @@ body::before{
 #toast.err{border-color:rgba(251,113,133,.5);}
 #toast.err::before{content:'\26A0  ';color:var(--red);}
 
+/* ─── ALL LINKS PANEL ─── */
+.links-panel{background:var(--surf);border:1px solid var(--line2);border-radius:14px;overflow:hidden;}
+.links-panel-head{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;user-select:none;-webkit-user-select:none;}
+.links-panel-title{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--p3);flex:1;}
+.links-panel-count{font-family:var(--mono);font-size:9px;background:var(--grad2);color:#fff;padding:2px 8px;border-radius:10px;}
+.links-panel-arr{font-size:11px;color:var(--muted);transition:transform .2s;}
+.links-panel.open .links-panel-arr{transform:rotate(180deg);}
+.links-panel-body{display:none;padding:0 10px 10px;max-height:300px;overflow-y:auto;}
+.links-panel-body::-webkit-scrollbar{display:none;}
+.links-panel.open .links-panel-body{display:block;}
+.link-item{display:flex;align-items:center;gap:7px;padding:7px 0;border-bottom:1px solid var(--line);}
+.link-item:last-child{border-bottom:none;}
+.link-item-name{flex:1;min-width:0;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text2);}
+.link-btns{display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end;}
+.lbtn{font-family:var(--mono);font-size:9px;padding:5px 8px;border-radius:8px;border:1px solid var(--line2);background:var(--card);color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:3px;white-space:nowrap;transition:all .18s;-webkit-user-select:none;user-select:none;}
+.lbtn:active{transform:scale(.88);}
+.lbtn.stream{border-color:rgba(168,85,247,.5);color:var(--p1);}
+.lbtn.proxy{border-color:rgba(34,211,238,.5);color:var(--p3);}
+.lbtn.dl{border-color:rgba(52,211,153,.5);color:var(--green);}
+.lbtn.open-tab{border-color:rgba(236,72,153,.4);color:var(--p2);}
+
 /* ─── DESKTOP ─── */
 @media(min-width:760px){
   .app{flex-direction:row;flex-wrap:wrap;}
@@ -271,6 +292,15 @@ body::before{
           <div class="prog-lbl" id="prog-lbl">Resolving...</div>
         </div>
         <div class="tip">&#128161; <b>Tip:</b> double-tap left/right of the video to skip &#177;10s. Long-press a track to reveal actions. Everything you play is saved to <b>History</b> automatically.</div>
+        <!-- ALL LINKS PANEL -->
+        <div class="links-panel" id="links-panel" style="display:none">
+          <div class="links-panel-head" onclick="this.parentElement.classList.toggle('open')">
+            <span class="links-panel-title">&#128279; All Fetched Links</span>
+            <span class="links-panel-count" id="links-panel-count">0</span>
+            <span class="links-panel-arr">&#9660;</span>
+          </div>
+          <div class="links-panel-body" id="links-panel-body"></div>
+        </div>
       </div>
     </div>
 
@@ -482,6 +512,8 @@ function switchTab(t){
 function cycleSort(){ sortIdx=(sortIdx+1)%SORTS.length; document.getElementById('q-sort').innerHTML='&#8645; '+SORTS[sortIdx]; render(); }
 
 /* ─── ADD LINKS ─── */
+let allFetchedLinks=[];
+
 async function addLinks(){
   const raw=document.getElementById('link-input').value.trim();
   if(!raw)return;
@@ -497,15 +529,33 @@ async function addLinks(){
   const pw=document.getElementById('prog-wrap'),pf=document.getElementById('prog-fill'),pl=document.getElementById('prog-lbl');
   pw.classList.add('show');
   let done=0; const total=lines.length;
+  let firstPlayed=currentIdx!==-1;
   const q=lines.map((url,i)=>({url,idx:si+i}));
-  const wk=async()=>{ while(q.length){ const {url,idx}=q.shift(); await resolveOne(url,idx); done++; pf.style.width=((done/total)*100)+'%'; pl.textContent='Resolved '+done+' / '+total; render(); renderFailed(); updateStats(); save(); } };
-  await Promise.all([wk(),wk(),wk()]);
+
+  // 6 parallel workers — ~2× faster than 3
+  const wk=async()=>{
+    while(q.length){
+      const {url,idx}=q.shift();
+      await resolveOne(url,idx);
+      done++;
+      pf.style.width=((done/total)*100)+'%';
+      pl.textContent='Resolved '+done+' / '+total;
+      render(); renderFailed(); updateStats(); save();
+      renderLinksPanel();
+      // start playing the very first ready item immediately
+      if(!firstPlayed&&playlist[idx].status==='ready'){
+        firstPlayed=true;
+        playItem(idx);
+        switchTab('pl');
+      }
+    }
+  };
+  await Promise.all([wk(),wk(),wk(),wk(),wk(),wk()]);
 
   pw.classList.remove('show');
   document.getElementById('resolve-btn').disabled=false;
   toast(total+' link'+(total>1?'s':'')+' processed','ok');
-  switchTab('pl');
-  if(currentIdx===-1){ const f=playlist.findIndex(p=>p.status==='ready'); if(f!==-1)playItem(f); }
+  if(!firstPlayed){ const f=playlist.findIndex(p=>p.status==='ready'); if(f!==-1){playItem(f);switchTab('pl');} else switchTab('pl'); }
 }
 
 async function resolveOne(url,idx){
@@ -517,8 +567,51 @@ async function resolveOne(url,idx){
       const proxy=f.proxy_url||null;
       const s=proxy||f.direct_link||f.download_link;
       playlist[idx]={...playlist[idx],name:f.file_name||shortUrl(url),size:f.size_bytes?fmtSize(f.size_bytes):null,sizeBytes:f.size_bytes||0,thumb:f.thumbnail||null,status:s?'ready':'error',streamUrl:s||null,proxyUrl:proxy,dlUrl:f.download_link||f.direct_link||null};
+      // collect for links panel
+      if(s){
+        const ei=allFetchedLinks.findIndex(l=>l.url===url);
+        const entry={url,name:f.file_name||shortUrl(url),streamUrl:s,proxyUrl:proxy,dlUrl:f.download_link||f.direct_link||null};
+        if(ei>=0)allFetchedLinks[ei]=entry; else allFetchedLinks.push(entry);
+      }
     } else { playlist[idx].status='error'; playlist[idx].errMsg=d.message||'Failed'; }
   } catch { playlist[idx].status='error'; playlist[idx].errMsg='Network error'; }
+}
+
+/* ─── LINKS PANEL ─── */
+function renderLinksPanel(){
+  const panel=document.getElementById('links-panel');
+  const body=document.getElementById('links-panel-body');
+  const countEl=document.getElementById('links-panel-count');
+  if(!allFetchedLinks.length){panel.style.display='none';return;}
+  panel.style.display='';
+  countEl.textContent=allFetchedLinks.length;
+  body.innerHTML=allFetchedLinks.map((l)=>{
+    const sUrl=esc(l.streamUrl||'');
+    const pUrl=esc(l.proxyUrl||'');
+    const dUrl=esc(l.dlUrl||'');
+    const showProxy=l.proxyUrl&&l.proxyUrl!==l.streamUrl;
+    const showDl=l.dlUrl&&l.dlUrl!==l.streamUrl;
+    return `<div class="link-item">
+      <div class="link-item-name" title="${esc(l.name)}">${esc(l.name)}</div>
+      <div class="link-btns">
+        ${sUrl?`<button class="lbtn stream" onclick="copyLink('${sUrl}')" title="Copy stream URL">&#128203; Stream</button>`:''}
+        ${showProxy?`<button class="lbtn proxy" onclick="copyLink('${pUrl}')" title="Copy proxy URL">&#128203; Proxy</button>`:''}
+        ${showDl?`<button class="lbtn dl" onclick="copyLink('${dUrl}')" title="Copy download URL">&#128203; DL</button>`:''}
+        ${sUrl?`<button class="lbtn open-tab" onclick="window.open('${sUrl}','_blank','noopener')" title="Open in new tab">&#8599;</button>`:''}
+        ${dUrl?`<button class="lbtn dl" onclick="downloadUrl('${dUrl}','${esc(l.name)}')" title="Download">&#8681;</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  // auto-open on first link
+  if(allFetchedLinks.length===1)panel.classList.add('open');
+}
+function copyLink(url){
+  navigator.clipboard.writeText(url).then(()=>toast('Copied!','ok')).catch(()=>{
+    const ta=document.createElement('textarea');
+    ta.value=url;document.body.appendChild(ta);ta.select();
+    try{document.execCommand('copy');toast('Copied!','ok');}catch{toast('Copy failed','err');}
+    ta.remove();
+  });
 }
 
 /* ─── PLAY ─── */
