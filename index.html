@@ -390,11 +390,9 @@ body::before{
         <button class="cb" onclick="nextTrack()">&#9197;</button>
         <button class="cb sm" id="speed-btn" onclick="cycleSpeed()">1x</button>
         <div class="sp"></div>
-        <button class="cb sm" id="loop-btn" onclick="toggleLoop()">&#128257;</button>
-        <button class="cb sm" id="auto-btn" onclick="toggleAutoplay()" style="font-size:10px">AUTO</button>
         <button class="cb" id="dl-now" onclick="downloadCurrent()" style="font-size:14px">&#8681;</button>
         <button class="cb" id="open-now" onclick="openCurrent()" title="Open in new tab" style="font-size:14px">&#8599;</button>
-        <button class="cb" onclick="toggleFS()" style="font-size:14px">&#9974;</button>
+        <button class="cb" id="fs-btn" onclick="toggleFS()" title="Fullscreen" style="font-size:17px">&#9974;</button>
       </div>
       <div class="vol-row">
         <button class="vol-btn" id="mute-btn" onclick="toggleMute()">&#128266;</button>
@@ -412,7 +410,7 @@ const WORKER='https://jaun.worksbeyondworks.workers.dev';
 const SPEEDS=[0.5,0.75,1,1.25,1.5,1.75,2];
 const SORTS=['Added','A-Z','Size','Status'];
 const LS_QUEUE='tboxair_queue_v1', LS_HIST='tboxair_hist_v1';
-let speedIdx=2,playlist=[],currentIdx=-1,autoplay=true,looping=false,seeking=false;
+let speedIdx=2,playlist=[],currentIdx=-1,seeking=false;
 let sortIdx=0,history=[];
 
 const vid=document.getElementById('video');
@@ -424,8 +422,6 @@ const sbThumb=document.getElementById('sb-thumb');
 const curT=document.getElementById('cur-time');
 const durT=document.getElementById('dur-time');
 const muteBtn=document.getElementById('mute-btn');
-const loopBtn=document.getElementById('loop-btn');
-const autoBtn=document.getElementById('auto-btn');
 const speedBtn=document.getElementById('speed-btn');
 const osdEl=document.getElementById('osd');
 const tapZone=document.getElementById('tap-zone');
@@ -454,8 +450,8 @@ vid.addEventListener('pause',()=>playBtn.innerHTML='&#9654;');
 vid.addEventListener('waiting',()=>spinner.classList.add('show'));
 vid.addEventListener('playing',()=>spinner.classList.remove('show'));
 vid.addEventListener('canplay',()=>spinner.classList.remove('show'));
-vid.addEventListener('ended',()=>{ if(looping){vid.play();return;} if(autoplay)nextTrack(); });
-vid.addEventListener('error',()=>{ spinner.classList.remove('show'); toast('Stream error','err'); if(autoplay)setTimeout(nextTrack,1200); });
+vid.addEventListener('ended',()=>{ nextTrack(); });
+vid.addEventListener('error',()=>{ spinner.classList.remove('show'); toast('Stream error','err'); setTimeout(nextTrack,1200); });
 
 function seekUI(p){ const s=(p*100).toFixed(2)+'%'; sbProg.style.width=s; sbThumb.style.left=s; }
 sbInp.addEventListener('pointerdown',()=>seeking=true);
@@ -477,8 +473,6 @@ function nextTrack(){ const o=ordered(); const pos=o.findIndex(x=>x._i===current
 function nudge(s){ vid.currentTime=Math.max(0,Math.min(vid.duration||0,vid.currentTime+s)); osd(s>0?'+'+s+'s':s+'s'); }
 function setVolume(v){ vid.volume=parseFloat(v); vid.muted=false; muteBtn.innerHTML=v>0?'&#128266;':'&#128264;'; document.getElementById('vol-pct').textContent=Math.round(v*100)+'%'; }
 function toggleMute(){ vid.muted=!vid.muted; muteBtn.innerHTML=vid.muted?'&#128264;':'&#128266;'; osd(vid.muted?'Muted':'Unmuted'); }
-function toggleLoop(){ looping=!looping; loopBtn.classList.toggle('tog',looping); osd(looping?'Loop ON':'Loop OFF'); }
-function toggleAutoplay(){ autoplay=!autoplay; autoBtn.classList.toggle('tog',autoplay); }
 function cycleSpeed(){ speedIdx=(speedIdx+1)%SPEEDS.length; vid.playbackRate=SPEEDS[speedIdx]; speedBtn.textContent=SPEEDS[speedIdx]+'x'; osd(SPEEDS[speedIdx]+'x'); }
 function toggleFS(){ const el=document.getElementById('video-section'); if(!document.fullscreenElement)el.requestFullscreen().catch(()=>{if(vid.webkitEnterFullscreen)vid.webkitEnterFullscreen();}); else document.exitFullscreen().catch(()=>{}); }
 let osdT; function osd(m){ osdEl.textContent=m; osdEl.classList.add('show'); clearTimeout(osdT); osdT=setTimeout(()=>osdEl.classList.remove('show'),900); }
@@ -585,24 +579,22 @@ function renderLinksPanel(){
   if(!allFetchedLinks.length){panel.style.display='none';return;}
   panel.style.display='';
   countEl.textContent=allFetchedLinks.length;
-  body.innerHTML=allFetchedLinks.map((l)=>{
-    const sUrl=esc(l.streamUrl||'');
-    const pUrl=esc(l.proxyUrl||'');
-    const dUrl=esc(l.dlUrl||'');
-    const showProxy=l.proxyUrl&&l.proxyUrl!==l.streamUrl;
-    const showDl=l.dlUrl&&l.dlUrl!==l.streamUrl;
+  // store reference globally so index-based onclick handlers work safely (no URL-in-string issues)
+  window._lnks=allFetchedLinks;
+  body.innerHTML=allFetchedLinks.map((l,i)=>{
+    const hasProxy=!!(l.proxyUrl&&l.proxyUrl!==l.streamUrl);
+    const hasDl=!!(l.dlUrl&&l.dlUrl!==l.streamUrl);
     return `<div class="link-item">
       <div class="link-item-name" title="${esc(l.name)}">${esc(l.name)}</div>
       <div class="link-btns">
-        ${sUrl?`<button class="lbtn stream" onclick="copyLink('${sUrl}')" title="Copy stream URL">&#128203; Stream</button>`:''}
-        ${showProxy?`<button class="lbtn proxy" onclick="copyLink('${pUrl}')" title="Copy proxy URL">&#128203; Proxy</button>`:''}
-        ${showDl?`<button class="lbtn dl" onclick="copyLink('${dUrl}')" title="Copy download URL">&#128203; DL</button>`:''}
-        ${sUrl?`<button class="lbtn open-tab" onclick="window.open('${sUrl}','_blank','noopener')" title="Open in new tab">&#8599;</button>`:''}
-        ${dUrl?`<button class="lbtn dl" onclick="downloadUrl('${dUrl}','${esc(l.name)}')" title="Download">&#8681;</button>`:''}
+        ${l.streamUrl?`<button class="lbtn stream" onclick="copyLink(window._lnks[${i}].streamUrl)">&#128203; Stream</button>`:''}
+        ${hasProxy?`<button class="lbtn proxy" onclick="copyLink(window._lnks[${i}].proxyUrl)">&#128203; Proxy</button>`:''}
+        ${hasDl?`<button class="lbtn dl" onclick="copyLink(window._lnks[${i}].dlUrl)">&#128203; DL</button>`:''}
+        ${l.streamUrl?`<button class="lbtn open-tab" onclick="window.open(window._lnks[${i}].streamUrl,'_blank','noopener')">&#8599; Open</button>`:''}
+        ${l.dlUrl?`<button class="lbtn dl" onclick="downloadUrl(window._lnks[${i}].dlUrl,window._lnks[${i}].name)">&#8681;</button>`:''}
       </div>
     </div>`;
   }).join('');
-  // auto-open on first link
   if(allFetchedLinks.length===1)panel.classList.add('open');
 }
 function copyLink(url){
@@ -828,11 +820,10 @@ function timeAgo(t){ const d=Date.now()-t,m=Math.floor(d/6e4),h=Math.floor(d/36e
 let toastT; function toast(m,t=''){ const el=document.getElementById('toast'); el.textContent=m; el.className='show '+t; clearTimeout(toastT); toastT=setTimeout(()=>el.className='',2800); }
 
 /* keyboard */
-document.addEventListener('keydown',e=>{ if(['TEXTAREA','INPUT'].includes(e.target.tagName))return; switch(e.code){ case'Space':e.preventDefault();togglePlay();break; case'ArrowRight':e.preventDefault();nudge(10);break; case'ArrowLeft':e.preventDefault();nudge(-10);break; case'KeyM':toggleMute();break; case'KeyF':toggleFS();break; case'KeyL':toggleLoop();break; case'KeyS':cycleSpeed();break; case'KeyN':nextTrack();break; case'KeyP':prevTrack();break; } });
+document.addEventListener('keydown',e=>{ if(['TEXTAREA','INPUT'].includes(e.target.tagName))return; switch(e.code){ case'Space':e.preventDefault();togglePlay();break; case'ArrowRight':e.preventDefault();nudge(10);break; case'ArrowLeft':e.preventDefault();nudge(-10);break; case'KeyM':toggleMute();break; case'KeyF':toggleFS();break; case'KeyS':cycleSpeed();break; case'KeyN':nextTrack();break; case'KeyP':prevTrack();break; } });
 
 /* ─── INIT ─── */
 load();
-autoBtn.classList.add('tog');
 // reset stale "loading" statuses from a previous session
 playlist.forEach(p=>{ if(p.status==='loading')p.status='error',p.errMsg='Hit retry to resolve'; });
 render(); renderFailed(); renderHistory(); updateStats();
