@@ -224,7 +224,36 @@ body::before{
 #toast.err{border-color:rgba(251,113,133,.5);}
 #toast.err::before{content:'\26A0  ';color:var(--red);}
 
-/* ─── ALL LINKS PANEL ─── */
+.cb.tri{
+  background:var(--grad2);border:none;border-radius:0;
+  width:0;height:0;min-width:0;padding:0;
+  border-left:22px solid transparent;
+  border-right:22px solid transparent;
+  border-bottom:38px solid #a855f7;
+  position:relative;overflow:visible;
+  box-shadow:0 4px 18px rgba(168,85,247,.5);
+  transition:filter .18s,transform .18s;
+}
+.cb.tri::after{
+  content:'';position:absolute;
+  top:0;left:0;right:0;bottom:0;
+  border-left:22px solid transparent;
+  border-right:22px solid transparent;
+  border-bottom:38px solid transparent;
+  background:var(--grad2);
+  -webkit-mask:none;mask:none;
+}
+/* use clip-path instead — cleaner */
+.cb.tri{
+  width:44px;height:38px;min-width:44px;
+  border:none;border-radius:5px;
+  background:var(--grad2);
+  clip-path:polygon(50% 0%, 0% 100%, 100% 100%);
+  box-shadow:0 4px 18px rgba(168,85,247,.5);
+  font-size:0;
+}
+.cb.tri:active{transform:scale(.88);filter:brightness(1.2);}
+
 .links-panel{background:var(--surf);border:1px solid var(--line2);border-radius:14px;overflow:hidden;}
 .links-panel-head{display:flex;align-items:center;gap:8px;padding:11px 14px;cursor:pointer;user-select:none;-webkit-user-select:none;}
 .links-panel-title{font-family:var(--mono);font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--p3);flex:1;}
@@ -392,6 +421,7 @@ body::before{
         <div class="sp"></div>
         <button class="cb" id="dl-now" onclick="downloadCurrent()" style="font-size:14px">&#8681;</button>
         <button class="cb" id="open-now" onclick="openCurrent()" title="Open in new tab" style="font-size:14px">&#8599;</button>
+        <button class="cb tri" id="browser-play-btn" onclick="openInBrowser()" title="Open in browser player"></button>
         <button class="cb" id="fs-btn" onclick="toggleFS()" title="Fullscreen" style="font-size:17px">&#9974;</button>
       </div>
       <div class="vol-row">
@@ -493,6 +523,13 @@ function openProxy(url){ if(!url){toast('No proxy link','err');return;} window.o
 function openItem(idx,e){ e&&e.stopPropagation(); const it=playlist[idx]; openProxy(it&&(it.proxyUrl||it.streamUrl)); }
 function openHist(idx,e){ e&&e.stopPropagation(); const it=history[idx]; openProxy(it&&(it.proxyUrl||it.streamUrl)); }
 function openCurrent(){ if(currentIdx>=0)openItem(currentIdx); }
+function openInBrowser(){
+  if(currentIdx<0){toast('Nothing playing','err');return;}
+  const it=playlist[currentIdx];
+  const url=it.streamUrl||it.proxyUrl;
+  if(!url){toast('No stream URL','err');return;}
+  window.open(url,'_blank','noopener');
+}
 
 /* ─── TABS ─── */
 function switchTab(t){
